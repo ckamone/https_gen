@@ -14,7 +14,7 @@ import (
 )
 
 // Версия программы
-const version = "0.0.1"
+const version = "0.0.2"
 
 func sendRequestWithSourceIP(url string, srcIP string, src_port int, page string) error {
     // Создаем транспорт с указанием локального адреса
