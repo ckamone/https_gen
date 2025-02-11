@@ -53,6 +53,7 @@ func sendRequestWithSourceIP(url string, srcIP string, src_port int, page string
 	}
     host := fmt.Sprintf("nginx%d", src_port)
     req.Host = host
+    req.Header.Set("Connection", "close")
 
     // Отправляем запрос
     resp, err := client.Do(req)
