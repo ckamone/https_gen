@@ -79,6 +79,7 @@ func main() {
     var workers int
     var logfie string
     var showVersion bool
+    var timeoutSecs int // Новое поле для времени ожидания в секундах
 
     // parsing
     flag.StringVar(&url_str, "target", "nginx01:443", "Введите target")
@@ -88,8 +89,8 @@ func main() {
     flag.IntVar(&workers, "wrk", 20000, "Введите кол-во workers")
     flag.StringVar(&logfie, "log", "default.log", "Введите название log файла")
     flag.BoolVar(&showVersion, "version", false, "Показать версию программы")
+    flag.IntVar(&timeoutSecs, "timeout", 60, "Укажите время работы теста в секундах")
     flag.Parse()
-
 
     // Если указан флаг -version, выводим версию и завершаем работу
     if showVersion {
@@ -99,10 +100,10 @@ func main() {
 
     logFile, err := os.OpenFile(logfie, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
     if err != nil {
-		log.Fatalf("Ошибка открытия файла для логирования: %v", err)
-	}
+        log.Fatalf("Ошибка открытия файла для логирования: %v", err)
+    }
     defer logFile.Close()
-	log.SetOutput(logFile) // Устанавливаем логгер, чтобы писать в файл
+    log.SetOutput(logFile) // Устанавливаем логгер, чтобы писать в файл
 
     // base calculations
     srcIPs := strings.Split(ips, ",")
@@ -110,28 +111,40 @@ func main() {
     concurrentLimit := workers
     limiter := make(chan struct{}, concurrentLimit)
     var microsecond float32 = 1000000
-    var cps_sec_ratio float32 =  (1 / cps)
-    duration := time.Duration(cps_sec_ratio * (microsecond)) * time.Microsecond
+    var cps_sec_ratio float32 = (1 / cps)
+    duration := time.Duration(cps_sec_ratio*(microsecond)) * time.Microsecond
     port_strt := 1
     port_end := 65535
-    
 
     var wg sync.WaitGroup // Используем WaitGroup для ожидания завершения всех горутин
-    
-    for _, src_ip := range srcIPs  {
+
+    // Канал для сигнала о завершении через timeoutSecs секунд
+    timeout := time.After(time.Duration(timeoutSecs) * time.Second)
+
+    for _, src_ip := range srcIPs {
         for src_port := port_strt; src_port <= port_end; src_port++ {
-            wg.Add(1)
-            limiter <- struct{}{}
-            go func(src_ip string) {
-                defer wg.Done() // Уменьшаем счетчик при завершении горутины
-                defer func() { <-limiter }() // Когда горутина завершится, освобождаем место в канале
-                err := sendRequestWithSourceIP(url_str, src_ip, src_port, page_size)
-                if err != nil {
-                    log.Printf("Error sending request from %s: %v\n", src_ip, err)
-                }
-            }(src_ip) // Передаем значение src_ip в горутину
-            time.Sleep(duration) 
+            select {
+            case <-timeout:
+                log.Println("Тайм-аут достигнут, завершение программы...")
+                goto Finish // Прерываем циклы при достижении таймаута
+            default:
+                wg.Add(1)
+                limiter <- struct{}{}
+                go func(src_ip string, src_port int) {
+                    defer wg.Done() // Уменьшаем счетчик при завершении горутины
+                    defer func() { <-limiter }() // Когда горутина завершится, освобождаем место в канале
+                    err := sendRequestWithSourceIP(url_str, src_ip, src_port, page_size)
+                    if err != nil {
+                        log.Printf("Error sending request from %s:%d: %v\n", src_ip, src_port, err)
+                    }
+                }(src_ip, src_port) // Передаем значения src_ip и src_port в горутину
+                time.Sleep(duration)
+            }
         }
     }
-    wg.Wait()
+
+    Finish:
+        close(limiter) // Закрываем канал limiter, если он больше не нужен
+        wg.Wait()      // Ждем завершения всех горутин
+        log.Println("Программа завершила работу.")
 }
