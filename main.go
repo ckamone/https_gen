@@ -13,6 +13,9 @@ import (
     "time"
 )
 
+// Версия программы
+const version = "0.0.1"
+
 func sendRequestWithSourceIP(url string, srcIP string, src_port int, page string) error {
     // Создаем транспорт с указанием локального адреса
     transport := &http.Transport{
@@ -23,6 +26,8 @@ func sendRequestWithSourceIP(url string, srcIP string, src_port int, page string
             // Настроим TLS
             config := &tls.Config{
                 InsecureSkipVerify: true,  
+                MinVersion: tls.VersionTLS12,
+                MaxVersion: tls.VersionTLS12,
                 // ServerName: sni, // Устанавливаем SNI
             }
 
@@ -53,6 +58,7 @@ func sendRequestWithSourceIP(url string, srcIP string, src_port int, page string
 	}
     host := fmt.Sprintf("nginx%d", src_port)
     req.Host = host
+    req.Header.Set("Connection", "close")
 
     // Отправляем запрос
     resp, err := client.Do(req)
@@ -72,6 +78,7 @@ func main() {
     var cpsInt int
     var workers int
     var logfie string
+    var showVersion bool
 
     // parsing
     flag.StringVar(&url_str, "target", "nginx01:443", "Введите target")
@@ -80,7 +87,15 @@ func main() {
     flag.IntVar(&cpsInt, "cps", 10000, "Введите CPS")
     flag.IntVar(&workers, "wrk", 20000, "Введите кол-во workers")
     flag.StringVar(&logfie, "log", "default.log", "Введите название log файла")
+    flag.BoolVar(&showVersion, "version", false, "Показать версию программы")
     flag.Parse()
+
+
+    // Если указан флаг -version, выводим версию и завершаем работу
+    if showVersion {
+        fmt.Printf("Версия программы: %s\n", version)
+        return
+    }
 
     logFile, err := os.OpenFile(logfie, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
     if err != nil {
